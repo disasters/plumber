@@ -1,5 +1,5 @@
 # Plumber
-Plumber is the code-name for Project B-Hole.  ~~Project B-Hole~~Plumber is an LD_PRELOAD hooking library for [Discotech](https://github.com/the-tetanus-clinic/discotech), providing lazy initialization and hooks of connect and getaddrinfo.
+Plumber is an LD_PRELOAD hooking library for [Discotech](https://github.com/the-tetanus-clinic/discotech), providing lazy initialization and hooks of connect and getaddrinfo.
 
 ## Usage
 Linux/FreeBSD:
