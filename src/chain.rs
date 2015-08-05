@@ -12,6 +12,19 @@ impl <A,B> Chain<A,B> {
         }
     }
 
+    /*
+    pub fn filter_map<F: FnOnce(&A) -> bool, G: FnOnce(A) -> Chain<A,B>>
+        (&self, f: F, g: G) -> Chain<A, B> {
+        match self {
+            Chain::Args(a) => match f(&a) {
+                true => g(a),
+                false => self,
+            },
+            Chain::Ret(b) => Chain::Ret(b),
+        }
+    }
+    */
+
     pub fn is_done(self) -> bool {
         match self {
             Chain::Args(_) => false,
