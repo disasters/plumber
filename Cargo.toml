@@ -12,4 +12,5 @@ name = "plumber"
 crate_type = ["dylib"]
 
 [dependencies]
-discotech = "0.0.3"
+libc="0.1.8"
+lazy_static="0.1.14"

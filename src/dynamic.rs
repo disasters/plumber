@@ -8,10 +8,11 @@ extern {
     fn dlsym(handle: *const c_void, symbol: *const c_char) -> *const c_void;
 }
 
-pub unsafe fn dlsym_next(symbol: &'static str) -> *const u8 {
+pub unsafe fn dlsym_next(symbol: &'static str) -> Result<*const u8, String> {
     let ptr = dlsym(RTLD_NEXT, symbol.as_ptr() as *const c_char);
     if ptr.is_null() {
-        panic!("Unable to find underlying function for {}", symbol);
+        Err(format!("Unable to find underlying function for {}", symbol))
+    } else {
+        Ok(ptr as *const u8)
     }
-    ptr as *const u8
 }
