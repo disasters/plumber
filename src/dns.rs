@@ -59,7 +59,7 @@ extern {
                answer: *const u8, anslen: c_int) -> c_int;
 }
 
-fn query(dname: &str, class: Class, typef: Type) -> Result<&str, Rcode> {
+fn query(dname: &str, class: Class, typef: Type) -> Result<[u8;4], Rcode> {
     let dname = CString::new("_leader._tcp.mesos").unwrap();
     let ans: *const u8 = &[0u8;1024] as *const u8;
     println!("ans addr is {:?}", ans);

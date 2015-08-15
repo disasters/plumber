@@ -17,6 +17,6 @@ pub unsafe fn connect(socket: c_int, address: *mut sockaddr,
 #[no_mangle]
 pub unsafe fn getaddrinfo(node: *const c_char, service: *const c_char,
                           hints: *const addrinfo,
-                          res: *const *const addrinfo) -> c_int {
+                          res: *mut *const addrinfo) -> c_int {
     SS.getaddrinfo(node, service, hints, res)
 }
