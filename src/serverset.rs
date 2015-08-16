@@ -36,14 +36,14 @@ fn host_mapper(host: String) -> Option<(u16, [u8;4])> {
     }
 }
 
-fn test_mapper(ip: [u8; 4]) -> (u16, [u8;4]) {
+fn test_mapper(host: &String) -> (u16, [u8;4]) {
     println!("in test_mapper");
-    (8080, [127,127,127,127])
+    (5050, [127,0,0,1])
 }
 
 pub struct Serverset {
-    host_to_magic_ip: Arc<Mutex<BTreeMap<String, [u8;4]>>>,
-    magic_ip_to_fetcher: Arc<Mutex<BTreeMap<[u8; 4], fn ([u8; 4]) -> (u16, [u8; 4])>>>,
+    magic_ip_to_host: Arc<Mutex<BTreeMap<[u8;4], String>>>,
+    magic_ip_to_fetcher: Arc<Mutex<BTreeMap<[u8; 4], fn (&String) -> (u16, [u8; 4])>>>,
     real_connect: unsafe extern "C" fn(c_int,
                                        *const sockaddr, socklen_t) -> c_int,
     real_getaddrinfo: unsafe extern "C" fn(node: *const c_char,
@@ -55,7 +55,7 @@ pub struct Serverset {
 impl Serverset {
     pub unsafe fn new() -> Serverset {
         Serverset{
-            host_to_magic_ip: Arc::new(Mutex::new(BTreeMap::new())),
+            magic_ip_to_host: Arc::new(Mutex::new(BTreeMap::new())),
             magic_ip_to_fetcher: Arc::new(Mutex::new(BTreeMap::new())),
             real_connect:
                 mem::transmute(dlsym_next("connect\0").unwrap()),
@@ -66,24 +66,29 @@ impl Serverset {
 
     pub fn connect(&self, socket: c_int, address: *mut sockaddr,
                    len: socklen_t) -> c_int {
-        println!("beginning connect dance");
         Chain::Args(ConnectArgs{
             socket: socket,
             address: address,
             len: len,
         }).map( |a| {
             let (port, ip) = sockaddr_to_port_ip(a.address);
-            println!("connect trying to use ip {:?}", ip);
+            println!("connect received {:?}:{}", ip, port);
             self.magic_ip_to_fetcher.lock().unwrap().get(&ip).map( |f| {
                 println!("got the fetcher!");
-                let (new_port, new_ip) = f(ip);
+                let (new_port, new_ip) =
+                    f(self.magic_ip_to_host.lock().unwrap().get(&ip).unwrap());
                 unsafe {
                     (*a.address).sa_data = port_ip_to_sa_data(new_port, new_ip);
                 }
+                println!("connect override {:?}:{}", new_ip, new_port);
             });
             Chain::Args(a)
         }).unwrap_or( |a| {
             unsafe {
+                let (port, ip) = sockaddr_to_port_ip(a.address);
+                println!("connect attempt to {:?}:{}", ip, port);
+                println!("sa_family {}", (*a.address).sa_family);
+                println!("sa_data   {:?}", (*a.address).sa_data);
                 let r = (self.real_connect)(a.socket, a.address, a.len);
                 println!("connect returned {}", r);
                 r
@@ -102,15 +107,16 @@ impl Serverset {
             let c_str = unsafe { CStr::from_ptr(node) };
             let s = from_utf8(c_str.to_bytes()).unwrap().to_owned();
             println!("getaddrinfo pre-hook: node: {:?} service: {:?}", s, service);
-            host_mapper(s).map_or(Chain::Args(a), |(port, ip)| {
+            host_mapper(s.clone()).map_or(Chain::Args(a), |(port, ip)| {
                 self.magic_ip_to_fetcher.lock().unwrap().insert(ip, test_mapper);
+                self.magic_ip_to_host.lock().unwrap().insert(ip, s);
                 unsafe {
                     let sa_buf: *mut sockaddr =
                         mem::transmute(
                             libc::malloc(mem::size_of::<sockaddr>() as size_t)
                         );
                     *sa_buf = sockaddr{
-                        sa_family: 1,
+                        sa_family: 2,
                         sa_data: port_ip_to_sa_data(port, ip),
                     };
 
