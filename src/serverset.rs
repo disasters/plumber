@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::ffi::{CString, CStr};
 use std::mem;
 use std::str::from_utf8;
-use std::sync::{Arc, Mutex};
+use std::sync::{RwLock};
 
 use chain::Chain;
 use dynamic::dlsym_next;
@@ -45,8 +45,8 @@ fn srv_mapper(host: &String) -> (u16, [u8;4]) {
 }
 
 pub struct Serverset {
-    magic_ip_to_host: Arc<Mutex<BTreeMap<[u8;4], String>>>,
-    magic_ip_to_fetcher: Arc<Mutex<BTreeMap<[u8; 4], fn (&String) -> (u16, [u8; 4])>>>,
+    magic_ip_to_host: RwLock<BTreeMap<[u8;4], String>>,
+    magic_ip_to_fetcher: RwLock<BTreeMap<[u8; 4], fn (&String) -> (u16, [u8; 4])>>,
     real_connect: unsafe extern "C" fn(c_int,
                                        *const sockaddr, socklen_t) -> c_int,
     real_getaddrinfo: unsafe extern "C" fn(node: *const c_char,
@@ -58,8 +58,8 @@ pub struct Serverset {
 impl Serverset {
     pub unsafe fn new() -> Serverset {
         Serverset{
-            magic_ip_to_host: Arc::new(Mutex::new(BTreeMap::new())),
-            magic_ip_to_fetcher: Arc::new(Mutex::new(BTreeMap::new())),
+            magic_ip_to_host: RwLock::new(BTreeMap::new()),
+            magic_ip_to_fetcher: RwLock::new(BTreeMap::new()),
             real_connect:
                 mem::transmute(dlsym_next("connect\0").unwrap()),
             real_getaddrinfo:
@@ -76,10 +76,10 @@ impl Serverset {
         }).map( |a| {
             let (port, ip) = sockaddr_to_port_ip(a.address);
             println!("connect received {:?}:{}", ip, port);
-            let ipf = self.magic_ip_to_fetcher.lock().unwrap();
+            let ipf = self.magic_ip_to_fetcher.read().unwrap();
             ipf.get(&ip).map( |f| {
                 println!("got the fetcher!");
-                let iph = self.magic_ip_to_host.lock().unwrap();
+                let iph = self.magic_ip_to_host.read().unwrap();
                 let (new_port, new_ip) = f(iph.get(&ip).unwrap());
                 unsafe {
                     (*a.address).sa_data = port_ip_to_sa_data(new_port, new_ip);
@@ -110,12 +110,12 @@ impl Serverset {
             res: res,
         }).map( |a| {
             let c_str = unsafe { CStr::from_ptr(node) };
-            let s = from_utf8(c_str.to_bytes()).unwrap().to_owned();
+            let s: String = from_utf8(c_str.to_bytes()).unwrap().to_owned();
             println!("getaddrinfo pre-hook: node: {:?} service: {:?}", s, service);
             host_mapper(s.clone()).map_or(Chain::Args(a), |(port, ip)| {
-                let mut ipf = self.magic_ip_to_fetcher.lock().unwrap();
+                let mut ipf = self.magic_ip_to_fetcher.write().unwrap();
                 ipf.insert(ip, srv_mapper);
-                let mut iph = self.magic_ip_to_host.lock().unwrap();
+                let mut iph = self.magic_ip_to_host.write().unwrap();
                 iph.insert(ip, s);
                 unsafe {
                     let sa_buf: *mut sockaddr =

@@ -138,7 +138,7 @@ pub struct RR {
 }
 
 pub fn query_srv(name: &str) -> Result<Vec<RR>, Rcode> {
-    query("_etcd-server._tcp.etcd-t1.mesos", Class::ANY, Type::SRV)
+    query(name, Class::ANY, Type::SRV)
 }
 
 pub fn query(name: &str, class: Class, typef: Type) -> Result<Vec<RR>, Rcode> {
@@ -163,8 +163,8 @@ pub fn query(name: &str, class: Class, typef: Type) -> Result<Vec<RR>, Rcode> {
             let c_str = unsafe { CStr::from_ptr(dispbuf.as_ptr() as *const i8) };
             let s = from_utf8(c_str.to_bytes()).unwrap().to_owned();
             println!("{}", s);
-            let host: &str = s.split(" ").nth(0).unwrap();
-            let ip = s.split(" ").last().unwrap();
+            let host: &str = s.split_whitespace().nth(0).unwrap();
+            let ip = s.split_whitespace().last().unwrap();
             let octets: Vec<u8> = ip.split(".").map( |o| {
                 o.parse::<u8>().unwrap()
             }).collect();
