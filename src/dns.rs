@@ -1,7 +1,9 @@
 extern crate libc;
 use self::libc::{c_char, c_int};
+use std::collections::HashMap;
 use std::ffi::{CString, CStr};
 use std::mem;
+use std::slice;
 use std::str::from_utf8;
 
 #[derive(PartialEq,Debug,Clone)]
@@ -127,19 +129,59 @@ extern {
                        b2: *const c_char, buf: *const c_char, buflen: c_int);
 }
 
-fn query(name: &str, class: Class, typef: Type) -> Result<(u16, [u8;4]), Rcode> {
-    let ns_c_in = 1;
-    let ns_t_srv = 33;
+#[derive(PartialEq,Debug,Clone)]
+pub struct RR {
+    pub priority: u16,
+    pub weight: u16,
+    pub port: u16,
+    pub ip: [u8;4],
+}
+
+pub fn query_srv(name: &str) -> Result<Vec<RR>, Rcode> {
+    query("_etcd-server._tcp.etcd-t1.mesos", Class::ANY, Type::SRV)
+}
+
+pub fn query(name: &str, class: Class, typef: Type) -> Result<Vec<RR>, Rcode> {
     let dname = CString::new(name).unwrap();
     let ans_buf = [0u8;4096];
     let mut msg = ns_msg{..Default::default() };
+    let mut res = vec![];
     unsafe {
-        println!("before");
         let len = __res_query(dname.as_ptr() as *const i8, class as i32, typef as i32,
                            &ans_buf as *const u8, 4096);
         ns_initparse(&ans_buf as *const u8, len, &mut msg as *mut ns_msg);
-        let nmsg = msg.counts[1] as c_int;
-        for i in 0..nmsg {
+
+        let mut host_to_ip: HashMap<String, [u8;4]> = HashMap::new();
+        let nmsg_additional = msg.counts[3] as c_int;
+        for i in 0..nmsg_additional {
+            let dispbuf = [0u8;4096];
+            let mut rr = ns_rr{..Default::default() };
+            ns_parserr(&mut msg as *mut ns_msg, ns_sect_q::ns_s_ar, i, &mut rr as *mut ns_rr);
+            ns_sprintrr(&mut msg as *mut ns_msg, &mut rr as *mut ns_rr,
+                        0 as *const c_char, 0 as *const c_char,
+                        dispbuf.as_ptr() as *const i8, 4096);
+            let c_str = unsafe { CStr::from_ptr(dispbuf.as_ptr() as *const i8) };
+            let s = from_utf8(c_str.to_bytes()).unwrap().to_owned();
+            println!("{}", s);
+            let host: &str = s.split(" ").nth(0).unwrap();
+            let ip = s.split(" ").last().unwrap();
+            let octets: Vec<u8> = ip.split(".").map( |o| {
+                o.parse::<u8>().unwrap()
+            }).collect();
+            if octets.len() != 4 {
+                continue;
+            }
+            let ip: [u8; 4] = [
+                octets[0],
+                octets[1],
+                octets[2],
+                octets[3],
+            ];
+            host_to_ip.insert(host.to_string(), ip);
+        }
+
+        let nmsg_answer = msg.counts[1] as c_int;
+        for i in 0..nmsg_answer {
             let dispbuf = [0u8;4096];
             let mut rr = ns_rr{..Default::default() };
             ns_parserr(&mut msg as *mut ns_msg, ns_sect_q::ns_s_an, i, &mut rr as *mut ns_rr);
@@ -148,15 +190,29 @@ fn query(name: &str, class: Class, typef: Type) -> Result<(u16, [u8;4]), Rcode> 
                         dispbuf.as_ptr() as *const i8, 4096);
             let c_str = unsafe { CStr::from_ptr(dispbuf.as_ptr() as *const i8) };
             let s = from_utf8(c_str.to_bytes()).unwrap().to_owned();
-            println!("dispbuf: {}", s);
+            println!("{}", s);
+            if rr.rdlength < 6 {
+                return Err(Rcode::NotImplemented);
+            }
+            let rdata = slice::from_raw_parts(rr.rdata, rr.rdlength as usize);
+            let prio: u16 = ((rdata[0] as u16) << 8) + rdata[1] as u16;
+            let weight: u16 = ((rdata[2] as u16) << 8) + rdata[3] as u16;
+            let port: u16 = ((rdata[4] as u16) << 8) + rdata[5] as u16;
+            println!("prio weight port: {} {} {}", prio, weight, port);
+            println!("host: {:?}", s.split(" ").last());
+            res.push(RR{
+                ip: *host_to_ip.get(&s.split(" ").last().unwrap().to_string()).unwrap(),
+                priority: prio,
+                weight: weight,
+                port: port,
+            });
         }
-
     }
-    Err(Rcode::NotImplemented)
+    Ok(res)
 }
 
 #[test]
 fn test_query() {
-    let r = query("_etcd-server._tcp.etcd-t1.mesos", Class::INET, Type::SRV);
+    let r = query_srv("_etcd-server._tcp.etcd-t1.mesos");
     println!("result: {:?}", r);
 }

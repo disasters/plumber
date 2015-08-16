@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use chain::Chain;
 use dynamic::dlsym_next;
 use util::{sockaddr_to_port_ip,port_ip_to_sa_data};
+use dns::query_srv;
 
 pub struct ConnectArgs {
     socket: c_int,
@@ -30,15 +31,17 @@ pub type GetaddrinfoRet = c_int;
 
 fn host_mapper(host: String) -> Option<(u16, [u8;4])> {
     println!("mapping host {}", host);
-    match host == "test.mesos" {
+    match host.starts_with("_") {
         true => Some((8080, [127,127,127,127])),
         false => None
     }
 }
 
-fn test_mapper(host: &String) -> (u16, [u8;4]) {
-    println!("in test_mapper");
-    (5050, [127,0,0,1])
+fn srv_mapper(host: &String) -> (u16, [u8;4]) {
+    println!("querying srv");
+    let rrs = query_srv(host).unwrap();
+    let rr = rrs.first().unwrap();
+    (rr.port, rr.ip)
 }
 
 pub struct Serverset {
@@ -73,15 +76,17 @@ impl Serverset {
         }).map( |a| {
             let (port, ip) = sockaddr_to_port_ip(a.address);
             println!("connect received {:?}:{}", ip, port);
-            self.magic_ip_to_fetcher.lock().unwrap().get(&ip).map( |f| {
+            let ipf = self.magic_ip_to_fetcher.lock().unwrap();
+            ipf.get(&ip).map( |f| {
                 println!("got the fetcher!");
-                let (new_port, new_ip) =
-                    f(self.magic_ip_to_host.lock().unwrap().get(&ip).unwrap());
+                let iph = self.magic_ip_to_host.lock().unwrap();
+                let (new_port, new_ip) = f(iph.get(&ip).unwrap());
                 unsafe {
                     (*a.address).sa_data = port_ip_to_sa_data(new_port, new_ip);
                 }
                 println!("connect override {:?}:{}", new_ip, new_port);
             });
+            println!("pass-through");
             Chain::Args(a)
         }).unwrap_or( |a| {
             unsafe {
@@ -108,8 +113,10 @@ impl Serverset {
             let s = from_utf8(c_str.to_bytes()).unwrap().to_owned();
             println!("getaddrinfo pre-hook: node: {:?} service: {:?}", s, service);
             host_mapper(s.clone()).map_or(Chain::Args(a), |(port, ip)| {
-                self.magic_ip_to_fetcher.lock().unwrap().insert(ip, test_mapper);
-                self.magic_ip_to_host.lock().unwrap().insert(ip, s);
+                let mut ipf = self.magic_ip_to_fetcher.lock().unwrap();
+                ipf.insert(ip, srv_mapper);
+                let mut iph = self.magic_ip_to_host.lock().unwrap();
+                iph.insert(ip, s);
                 unsafe {
                     let sa_buf: *mut sockaddr =
                         mem::transmute(
