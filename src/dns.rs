@@ -5,6 +5,16 @@ use std::ffi::{CString, CStr};
 use std::slice;
 use std::str::from_utf8;
 
+#[link(name = "resolv")]
+extern {
+    pub fn __res_query(dname: *const c_char, class: c_int, typef: c_int,
+               answer: *const u8, anslen: c_int) -> c_int;
+    pub fn ns_initparse(answer: *const u8, len: c_int, dst: *mut ns_msg);
+    pub fn ns_parserr(msg: *mut ns_msg, sect: ns_sect_q, which: c_int, rr: *mut ns_rr);
+    pub fn ns_sprintrr(msg: *mut ns_msg, rr: *mut ns_rr, b1: *const c_char,
+                       b2: *const c_char, buf: *const c_char, buflen: c_int);
+}
+
 #[derive(PartialEq,Debug,Clone)]
 pub enum Type {
 	// valid dnsRR_Header.Rrtype and dnsQuestion.qtype
@@ -118,16 +128,6 @@ impl Default for ns_msg {
     }
 }
 
-#[link(name = "resolv")]
-extern {
-    pub fn __res_query(dname: *const c_char, class: c_int, typef: c_int,
-               answer: *const u8, anslen: c_int) -> c_int;
-    pub fn ns_initparse(answer: *const u8, len: c_int, dst: *mut ns_msg);
-    pub fn ns_parserr(msg: *mut ns_msg, sect: ns_sect_q, which: c_int, rr: *mut ns_rr);
-    pub fn ns_sprintrr(msg: *mut ns_msg, rr: *mut ns_rr, b1: *const c_char,
-                       b2: *const c_char, buf: *const c_char, buflen: c_int);
-}
-
 #[derive(PartialEq,Eq, PartialOrd, Ord, Debug, Clone)]
 pub struct RR {
     pub priority: u16,
@@ -137,16 +137,12 @@ pub struct RR {
 }
 
 pub fn query_srv(name: &str) -> Result<Vec<RR>, Rcode> {
-    query(name, Class::ANY, Type::SRV)
-}
-
-pub fn query(name: &str, class: Class, typef: Type) -> Result<Vec<RR>, Rcode> {
     let dname = CString::new(name).unwrap();
     let ans_buf = [0u8;4096];
     let mut msg = ns_msg{..Default::default() };
     let mut res = vec![];
     unsafe {
-        let len = __res_query(dname.as_ptr() as *const i8, class as i32, typef as i32,
+        let len = __res_query(dname.as_ptr() as *const i8, Class::ANY as i32, Type::SRV as i32,
                            &ans_buf as *const u8, 4096);
         ns_initparse(&ans_buf as *const u8, len, &mut msg as *mut ns_msg);
 

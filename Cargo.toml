@@ -1,11 +1,15 @@
 [package]
 name = "plumber"
+description = "plumber is a shim that adds pluggable service discovery to legacy systems without modifying their code."
 version = "0.0.1"
 authors = [
   "Tyler Neely <t@jujit.su>",
   "Steve Salevan <steve.salevan@gmail.com>"
 ]
 license = "Apache-2.0"
+keywords = ["dns", "FFI", "service-discovery", "distributed", "LD_PRELOAD"]
+homepage = "https://github.com/the-tetanus-clinic/plumber"
+
 
 [lib]
 name = "plumber"

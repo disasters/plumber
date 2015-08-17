@@ -23,6 +23,6 @@ pub unsafe fn getaddrinfo(node: *const c_char, service: *const c_char,
 
 #[no_mangle]
 pub unsafe fn sendto(socket: c_int, msg: *const c_char, msglen: size_t,
-                     flags: c_int, dest_addr: *const sockaddr) -> ssize_t {
+                     flags: c_int, dest_addr: *mut sockaddr) -> ssize_t {
     SS.sendto(socket, msg, msglen, flags, dest_addr)
 }

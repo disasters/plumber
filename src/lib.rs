@@ -4,6 +4,5 @@ pub use serverset::Serverset;
 pub mod hooks;
 pub mod dynamic;
 pub mod serverset;
-pub mod chain;
 pub mod util;
 pub mod dns;
