@@ -1,9 +1,16 @@
 extern crate libc;
 use self::libc::{c_char, c_int};
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::ffi::{CString, CStr};
 use std::slice;
 use std::str::from_utf8;
+
+extern crate rand;
+use self::rand::Rng;
+use self::rand::distributions::{IndependentSample, Range};
+
+use ctypes::*;
 
 #[link(name = "resolv")]
 extern {
@@ -15,119 +22,6 @@ extern {
                        b2: *const c_char, buf: *const c_char, buflen: c_int);
 }
 
-#[derive(PartialEq,Debug,Clone)]
-pub enum Type {
-	// valid dnsRR_Header.Rrtype and dnsQuestion.qtype
-	A     = 1,
-	NS    = 2,
-	MD    = 3,
-	MF    = 4,
-	CNAME = 5,
-	SOA   = 6,
-	MB    = 7,
-	MG    = 8,
-	MR    = 9,
-	NULL  = 10,
-	WKS   = 11,
-	PTR   = 12,
-	HINFO = 13,
-	MINFO = 14,
-	MX    = 15,
-	TXT   = 16,
-	AAAA  = 28,
-	SRV   = 33,
-
-	// valid dnsQuestion.qtype only
-	AXFR  = 252,
-	MAILB = 253,
-	MAILA = 254,
-	ALL   = 255,
-}
-
-#[derive(PartialEq,Debug,Clone)]
-pub enum Class {
-	// valid dnsQuestion.qclass
-	INET   = 1,
-	CSNET  = 2,
-	CHAOS  = 3,
-	HESIOD = 4,
-	ANY    = 255,
-}
-
-#[derive(PartialEq,Debug,Clone)]
-pub enum Rcode {
-	// dnsMsg.rcode
-	Success        = 0,
-	FormatError    = 1,
-	ServerFailure  = 2,
-	NameError      = 3,
-	NotImplemented = 4,
-	Refused        = 5,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub enum ns_sect_q {
-    ns_s_qd = 0,        /* Query: Question. */
-    ns_s_an = 1,        /* Query: Answer. */
-    ns_s_ns = 2,        /* Query: Name servers. */
-    ns_s_ar = 3,        /* Query|Update: Additional records. */
-    ns_s_max = 4
-}
-
-#[repr(C)]
-pub struct ns_rr {
-    name: [u8;1025],
-    typef: u16,
-    rr_class: u16,
-    ttl: u32,
-    rdlength: u16,
-    rdata: *const u8,
-}
-
-impl Default for ns_rr {
-    fn default() -> ns_rr {
-        ns_rr {
-            name: [0u8;1025],
-            typef: 0,
-            rr_class: 0,
-            ttl: 0,
-            rdlength: 0,
-            rdata: 0 as *const u8,
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct ns_msg {
-    msg: *const u8,
-    eom: *const u8,
-    id: u16,
-    flags: u16,
-    counts: [u16;4],
-    sections: [*const u8;4],
-    sect: ns_sect_q,
-    rrnum: c_int,
-    msg_ptr: *const u8,
-}
-
-impl Default for ns_msg {
-    fn default() -> ns_msg {
-        ns_msg {
-            msg: 0 as *const u8,
-            eom: 0 as *const u8,
-            id: 0,
-            flags: 0,
-            counts: [0,0,0,0],
-            sections: [0 as *const u8, 0 as *const u8, 0 as *const u8, 0 as *const u8],
-            sect: ns_sect_q::ns_s_qd,
-            rrnum: 0,
-            msg_ptr: 0 as *const u8,
-        }
-    }
-}
-
 #[derive(PartialEq,Eq, PartialOrd, Ord, Debug, Clone)]
 pub struct RR {
     pub priority: u16,
@@ -136,6 +30,7 @@ pub struct RR {
     pub ip: [u8;4],
 }
 
+// query_srv uses res_query to attempt to look up SRV records.
 pub fn query_srv(name: &str) -> Result<Vec<RR>, Rcode> {
     let dname = CString::new(name).unwrap();
     let ans_buf = [0u8;4096];
@@ -204,6 +99,58 @@ pub fn query_srv(name: &str) -> Result<Vec<RR>, Rcode> {
     } else {
         Ok(res)
     }
+}
+
+// srv_mapper queries for SRV records and chooses
+// one of the possible results based on the SRV
+// priority and weight.
+pub fn srv_mapper(host: &String) -> Result<(u16, [u8;4]), String> {
+    let q = query_srv(host);
+    if q.is_err() {
+        return Err("srv lookup failed".to_string());
+    }
+    let mut results = q.unwrap();
+    if results.len() == 0 {
+        return Err("no records found".to_string());
+    }
+    results.sort();
+    let high_prio = results.first().unwrap().priority;
+    let mut weights = 0;
+    let mut rng = rand::thread_rng();
+
+    // scramble results so identical weights are chosen
+    // with less bias
+    results.sort_by(|_, _| {
+        if rng.gen() {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        }
+    });
+
+    let mut choices = vec![];
+    for r in results.iter() {
+        if r.priority == high_prio {
+            choices.push(r);
+            weights += r.weight;
+        }
+    }
+    if weights == 0 {
+        let range = Range::new(0, choices.len());
+        let weight = range.ind_sample(&mut rng);
+        return Ok((choices[weight].port, choices[weight].ip));
+    } else {
+        let range = Range::new(0, weights);
+        let weight = range.ind_sample(&mut rng);
+        let mut sofar = 0;
+        for rr in choices {
+            sofar += rr.weight;
+            if sofar >= weight {
+                return Ok((rr.port, rr.ip));
+            }
+        }
+    }
+    Err("no srv picked!".to_string())
 }
 
 #[test]

@@ -1,73 +1,15 @@
 extern crate libc;
-extern crate rand;
 use self::libc::types::os::common::bsd44::{addrinfo, socklen_t, sockaddr};
 use self::libc::{c_char, c_int, size_t, ssize_t};
-use std::cmp::Ordering;
 use std::collections::{BTreeMap};
 use std::ffi::{CStr};
 use std::mem;
 use std::str::from_utf8;
 use std::sync::{RwLock};
 
-use self::rand::Rng;
-use self::rand::distributions::{IndependentSample, Range};
-
 use dynamic::dlsym_next;
 use util::{sockaddr_to_port_ip,port_ip_to_sa_data};
-use dns::query_srv;
-
-fn host_filter(host: &String) -> bool {
-    host.starts_with("_")
-}
-
-fn srv_mapper(host: &String) -> Result<(u16, [u8;4]), String> {
-    let q = query_srv(host);
-    if q.is_err() {
-        return Err("srv lookup failed".to_string());
-    }
-    let mut results = q.unwrap();
-    if results.len() == 0 {
-        return Err("no records found".to_string());
-    }
-    results.sort();
-    let high_prio = results.first().unwrap().priority;
-    let mut weights = 0;
-    let mut rng = rand::thread_rng();
-
-    // scramble results so identical weights are chosen
-    // with less bias
-    results.sort_by(|_, _| {
-        if rng.gen() {
-            Ordering::Less
-        } else {
-            Ordering::Greater
-        }
-    });
-
-    let mut choices = vec![];
-    for r in results.iter() {
-        if r.priority == high_prio {
-            choices.push(r);
-            weights += r.weight;
-        }
-    }
-    if weights == 0 {
-        let range = Range::new(0, choices.len());
-        let weight = range.ind_sample(&mut rng);
-        return Ok((choices[weight].port, choices[weight].ip));
-    } else {
-        let range = Range::new(0, weights);
-        let weight = range.ind_sample(&mut rng);
-        let mut sofar = 0;
-        for rr in choices {
-            sofar += rr.weight;
-            if sofar >= weight {
-                return Ok((rr.port, rr.ip));
-            }
-        }
-    }
-    Err("no srv picked!".to_string())
-}
+use dns::srv_mapper;
 
 pub struct Serverset {
     magic_ip_to_host: RwLock<BTreeMap<[u8;4], String>>,
@@ -135,7 +77,8 @@ impl Serverset {
                    hints: *const addrinfo, res: *mut *const addrinfo) -> c_int {
         let c_str = unsafe { CStr::from_ptr(node) };
         let s: String = from_utf8(c_str.to_bytes()).unwrap().to_owned();
-        if host_filter(&s.clone()) {
+        // Trigger on possible SRV records.
+        if s.starts_with("_") {
             let (port, ip) = (8080, [127,127,127,127]);
             let mut iph = self.magic_ip_to_host.write().unwrap();
             iph.insert(ip, s);
