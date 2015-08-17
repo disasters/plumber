@@ -1,5 +1,5 @@
 extern crate libc;
-use self::libc::{c_char, c_int, c_void};
+use self::libc::{c_char, c_void};
 
 const RTLD_NEXT: *const c_void = -1isize as *const c_void;
 

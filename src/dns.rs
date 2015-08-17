@@ -2,7 +2,6 @@ extern crate libc;
 use self::libc::{c_char, c_int};
 use std::collections::HashMap;
 use std::ffi::{CString, CStr};
-use std::mem;
 use std::slice;
 use std::str::from_utf8;
 
@@ -129,7 +128,7 @@ extern {
                        b2: *const c_char, buf: *const c_char, buflen: c_int);
 }
 
-#[derive(PartialEq,Debug,Clone)]
+#[derive(PartialEq,Eq, PartialOrd, Ord, Debug, Clone)]
 pub struct RR {
     pub priority: u16,
     pub weight: u16,
@@ -160,9 +159,8 @@ pub fn query(name: &str, class: Class, typef: Type) -> Result<Vec<RR>, Rcode> {
             ns_sprintrr(&mut msg as *mut ns_msg, &mut rr as *mut ns_rr,
                         0 as *const c_char, 0 as *const c_char,
                         dispbuf.as_ptr() as *const i8, 4096);
-            let c_str = unsafe { CStr::from_ptr(dispbuf.as_ptr() as *const i8) };
+            let c_str = CStr::from_ptr(dispbuf.as_ptr() as *const i8);
             let s = from_utf8(c_str.to_bytes()).unwrap().to_owned();
-            println!("{}", s);
             let host: &str = s.split_whitespace().nth(0).unwrap();
             let ip = s.split_whitespace().last().unwrap();
             let octets: Vec<u8> = ip.split(".").map( |o| {
@@ -188,18 +186,15 @@ pub fn query(name: &str, class: Class, typef: Type) -> Result<Vec<RR>, Rcode> {
             ns_sprintrr(&mut msg as *mut ns_msg, &mut rr as *mut ns_rr,
                         0 as *const c_char, 0 as *const c_char,
                         dispbuf.as_ptr() as *const i8, 4096);
-            let c_str = unsafe { CStr::from_ptr(dispbuf.as_ptr() as *const i8) };
+            let c_str = CStr::from_ptr(dispbuf.as_ptr() as *const i8);
             let s = from_utf8(c_str.to_bytes()).unwrap().to_owned();
-            println!("{}", s);
             if rr.rdlength < 6 {
-                return Err(Rcode::NotImplemented);
+                return Err(Rcode::ServerFailure);
             }
             let rdata = slice::from_raw_parts(rr.rdata, rr.rdlength as usize);
             let prio: u16 = ((rdata[0] as u16) << 8) + rdata[1] as u16;
             let weight: u16 = ((rdata[2] as u16) << 8) + rdata[3] as u16;
             let port: u16 = ((rdata[4] as u16) << 8) + rdata[5] as u16;
-            println!("prio weight port: {} {} {}", prio, weight, port);
-            println!("host: {:?}", s.split(" ").last());
             res.push(RR{
                 ip: *host_to_ip.get(&s.split(" ").last().unwrap().to_string()).unwrap(),
                 priority: prio,
@@ -208,7 +203,11 @@ pub fn query(name: &str, class: Class, typef: Type) -> Result<Vec<RR>, Rcode> {
             });
         }
     }
-    Ok(res)
+    if res.len() == 0 {
+        Err(Rcode::NameError)
+    } else {
+        Ok(res)
+    }
 }
 
 #[test]

@@ -1,5 +1,5 @@
 extern crate libc;
-use self::libc::types::os::common::bsd44::{addrinfo, socklen_t, sockaddr};
+use self::libc::types::os::common::bsd44::{sockaddr};
 
 pub fn sockaddr_to_port_ip(address: *mut sockaddr) -> (u16, [u8;4]) {
     let data = unsafe { (*address).sa_data };
