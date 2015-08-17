@@ -1,5 +1,5 @@
 extern crate libc;
-use self::libc::{c_char, c_int};
+use self::libc::c_int;
 
 #[derive(PartialEq,Debug,Clone)]
 pub enum Type {

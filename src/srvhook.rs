@@ -10,9 +10,11 @@ use std::sync::{RwLock};
 use dynamic::dlsym_next;
 use util::{sockaddr_to_port_ip,port_ip_to_sa_data};
 use dns::srv_mapper;
+use hooks::Hook;
 
-pub struct Serverset {
+pub struct SRVHook {
     magic_ip_to_host: RwLock<BTreeMap<[u8;4], String>>,
+    host_to_magic_ip: RwLock<BTreeMap<String, [u8;4]>>,
     real_connect:
         unsafe extern "C" fn(c_int, *const sockaddr,
                              socklen_t) -> c_int,
@@ -27,32 +29,17 @@ pub struct Serverset {
                              dest_addr: *mut sockaddr) -> ssize_t,
 }
 
-impl Serverset {
-    pub unsafe fn new() -> Serverset {
-        Serverset{
+impl SRVHook {
+    pub unsafe fn new() -> SRVHook {
+        SRVHook{
             magic_ip_to_host: RwLock::new(BTreeMap::new()),
+            host_to_magic_ip: RwLock::new(BTreeMap::new()),
             real_getaddrinfo:
                 mem::transmute(dlsym_next("getaddrinfo\0").unwrap()),
             real_connect:
                 mem::transmute(dlsym_next("connect\0").unwrap()),
             real_sendto:
                 mem::transmute(dlsym_next("sendto\0").unwrap()),
-        }
-    }
-
-    pub fn connect(&self, socket: c_int, address: *mut sockaddr,
-                   len: socklen_t) -> c_int {
-        self.set_sockaddr(address);
-        unsafe {
-            (self.real_connect)(socket, address, len)
-        }
-    }
-
-    pub fn sendto(&self, socket: c_int, msg: *const c_char, msglen: size_t,
-                         flags: c_int, dest_addr: *mut sockaddr) -> ssize_t {
-        self.set_sockaddr(dest_addr);
-        unsafe {
-            (self.real_sendto)(socket, msg, msglen, flags, dest_addr)
         }
     }
 
@@ -70,10 +57,27 @@ impl Serverset {
                 }
             });
         });
+    }
+}
 
+impl Hook for SRVHook {
+    fn connect(&self, socket: c_int, address: *mut sockaddr,
+                   len: socklen_t) -> c_int {
+        self.set_sockaddr(address);
+        unsafe {
+            (self.real_connect)(socket, address, len)
+        }
     }
 
-    pub fn getaddrinfo(&self, node: *const c_char, service: *const c_char,
+    fn sendto(&self, socket: c_int, msg: *const c_char, msglen: size_t,
+                         flags: c_int, dest_addr: *mut sockaddr) -> ssize_t {
+        self.set_sockaddr(dest_addr);
+        unsafe {
+            (self.real_sendto)(socket, msg, msglen, flags, dest_addr)
+        }
+    }
+
+    fn getaddrinfo(&self, node: *const c_char, service: *const c_char,
                    hints: *const addrinfo, res: *mut *const addrinfo) -> c_int {
         let c_str = unsafe { CStr::from_ptr(node) };
         let s: String = from_utf8(c_str.to_bytes()).unwrap().to_owned();
