@@ -23,11 +23,6 @@ pub trait Hook {
 #[macro_export]
 macro_rules! set_hook {
     ($t:ty : $c:expr) => (
-        extern crate libc;
-        use self::libc::types::os::common::bsd44::{addrinfo, socklen_t, sockaddr};
-        use self::libc::{c_char, c_int, size_t, ssize_t};
-        use hooks::Hook;
-
         lazy_static! {
             static ref HOOK : $t = unsafe { $c };
         }
