@@ -28,6 +28,7 @@ pub struct RR {
     pub weight: u16,
     pub port: u16,
     pub ip: [u8;4],
+    pub ttl: u32,
 }
 
 // query_srv uses res_query to attempt to look up SRV records.
@@ -91,6 +92,7 @@ pub fn query_srv(name: &str) -> Result<Vec<RR>, Rcode> {
                 priority: prio,
                 weight: weight,
                 port: port,
+                ttl: rr.ttl,
             });
         }
     }
@@ -104,12 +106,16 @@ pub fn query_srv(name: &str) -> Result<Vec<RR>, Rcode> {
 // srv_mapper queries for SRV records and chooses
 // one of the possible results based on the SRV
 // priority and weight.
-pub fn srv_mapper(host: &String) -> Result<(u16, [u8;4]), String> {
+pub fn srv_mapper(host: &String) -> Result<RR, String> {
     let q = query_srv(host);
     if q.is_err() {
         return Err("srv lookup failed".to_string());
     }
-    let mut results = q.unwrap();
+    srv_chooser(q.unwrap())
+}
+
+pub fn srv_chooser(rrs: Vec<RR>) -> Result<RR, String> {
+    let mut results = rrs.clone();
     if results.len() == 0 {
         return Err("no records found".to_string());
     }
@@ -138,7 +144,7 @@ pub fn srv_mapper(host: &String) -> Result<(u16, [u8;4]), String> {
     if weights == 0 {
         let range = Range::new(0, choices.len());
         let weight = range.ind_sample(&mut rng);
-        return Ok((choices[weight].port, choices[weight].ip));
+        return Ok(choices[weight].clone());
     } else {
         let range = Range::new(0, weights);
         let weight = range.ind_sample(&mut rng);
@@ -146,7 +152,7 @@ pub fn srv_mapper(host: &String) -> Result<(u16, [u8;4]), String> {
         for rr in choices {
             sofar += rr.weight;
             if sofar >= weight {
-                return Ok((rr.port, rr.ip));
+                return Ok(rr.clone());
             }
         }
     }

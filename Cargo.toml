@@ -1,7 +1,7 @@
 [package]
 name = "plumber"
 description = "plumber is a shim that adds pluggable service discovery to legacy systems without modifying their code."
-version = "0.0.4"
+version = "0.0.7"
 authors = [
   "Tyler Neely <t@jujit.su>",
   "Steve Salevan <steve.salevan@gmail.com>"
@@ -17,3 +17,6 @@ name = "plumber"
 libc="0.1.8"
 lazy_static="0.1.14"
 rand="0.3"
+
+[dev-dependencies]
+quickcheck = "*"
